@@ -154,6 +154,15 @@ bool connectToNtp() {
 	startUDP();
 	return false;
 }
+inline int getSeconds(uint32_t UNIXTime) {
+	return UNIXTime % 60;
+}
+inline int getMinutes(uint32_t UNIXTime) {
+	return UNIXTime / 60 % 60;
+}
+inline int getHours(uint32_t UNIXTime) {
+	return UNIXTime / 3600 % 24;
+}
 
 void loop() {
 	if (am2302udate.check())if (sensorRead(&temp, &humid)){}
@@ -196,12 +205,15 @@ void loop() {
 		actualTime = timeUNIX + (currentMillis - lastNTPResponse) / 1000;
 		
 		if (writeToLog.check()) {
-			Serial.printf("Appending temperature to file: %lu,", actualTime);
+			String Time = String(getHours(actualTime)) + ":" + String(getMinutes(actualTime)) + ":" + String(getSeconds(actualTime));
+			Serial.println("Appending temperature to file: "+ Time);
 			Serial.println(temp);
 			File tempLog = SPIFFS.open("/temp.csv", "a"); // Write the time and the temperature to the csv file
-			tempLog.print(actualTime);
+			tempLog.print(Time);
 			tempLog.print(',');
 			tempLog.println(temp);
+			tempLog.print(',');
+			tempLog.println(humid);
 			tempLog.close();
 		}
 	}
@@ -377,7 +389,7 @@ unsigned long getTime() { // Check if the time server has responded, if so, get 
 	// Unix time starts on Jan 1 1970. That's 2208988800 seconds in NTP time:
 	const uint32_t seventyYears = 2208988800UL;
 	// subtract seventy years:
-	uint32_t UNIXTime = NTPTime - seventyYears;
+	uint32_t UNIXTime = NTPTime - seventyYears + 60 * 60 * 3;
 	return UNIXTime;
 }
 
