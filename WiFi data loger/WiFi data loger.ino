@@ -2,12 +2,17 @@
 #include <Wire.h>
 #include "DHTesp.h"
 #include <ESP8266WiFi.h>
-#include <ESP8266WiFiMulti.h>
+//#include <ESP8266WiFiMulti.h>
 #include <WiFiUdp.h>
 #include <ArduinoOTA.h>
 #include <ESP8266WebServer.h>
 #include <ESP8266mDNS.h>
 #include <FS.h>
+#include "Network.h"
+#include "Sys_Variables.h"
+#include "CSS.h"
+#include <SPI.h>
+
 
 DHTesp dht;
 float temp;
@@ -21,7 +26,7 @@ ESP8266WebServer server(80);             // create a web server on port 80
 
 File fsUploadFile;                                    // a File variable to temporarily store the received file
 
-ESP8266WiFiMulti wifiMulti;    // Create an instance of the ESP8266WiFiMulti class, called 'wifiMulti'
+//ESP8266WiFiMulti wifiMulti;    // Create an instance of the ESP8266WiFiMulti class, called 'wifiMulti'
 
 const char *OTAName = "ESP8266";         // A name and a password for the OTA service
 const char *OTAPassword = "esp8266";
@@ -38,8 +43,6 @@ const int NTP_PACKET_SIZE = 48;          // NTP time stamp is in the first 48 by
 byte packetBuffer[NTP_PACKET_SIZE];      // A buffer to hold incoming and outgoing packets
 bool NTPconnected = false;
 uint32_t actualTime;
-
-
 class task {
 public:
 	unsigned long period;
@@ -70,7 +73,7 @@ task am2302udate(2000);//read sensor
 task displayUpdate(1000);
 task task1(10000);//connection to NTP
 task taskSendNTPrequest(100);//sending NTP request
-task writeToLog(1000);
+task writeToLog(10000);
 
 void setup() {
 	Serial.begin(9600);
@@ -88,9 +91,13 @@ void setup() {
 
 	startMDNS();                 // Start the mDNS responder
 
-	startServer();               // Start a HTTP server with a file read handler and an upload handler
+//startServer();               // Start a HTTP server with a file read handler and an upload handler
 
-	startUDP();                  // Start listening for UDP messages to port 123
+startUDP();                  // Start listening for UDP messages to port 123
+server.on("/", HomePage);
+server.on("/download", File_Download);
+server.begin();
+
 
 	/*WiFi.hostByName(ntpServerName, timeServerIP); // Get the IP address of the NTP server
 	Serial.print("Time server IP:\t");
@@ -165,12 +172,14 @@ inline int getHours(uint32_t UNIXTime) {
 }
 
 void loop() {
-	if (am2302udate.check())if (sensorRead(&temp, &humid)){}
-	else { temp = 0; humid = 0; };
+	if (am2302udate.check()) {
+		if (sensorRead(&temp, &humid)) {}
+		else { temp = 0; humid = 0; };
+	}
 	if(displayUpdate.check())showOnOled(String(temp), String(humid));
 	yield();
 
-	unsigned long currentMillis = millis();
+	
 
 	if (task1.check()) {
 		Serial.println("Check()");
@@ -211,7 +220,7 @@ void loop() {
 			File tempLog = SPIFFS.open("/temp.csv", "a"); // Write the time and the temperature to the csv file
 			tempLog.print(Time);
 			tempLog.print(',');
-			tempLog.println(temp);
+			tempLog.print(temp);
 			tempLog.print(',');
 			tempLog.println(humid);
 			tempLog.close();
@@ -220,8 +229,9 @@ void loop() {
 
 
 	
-
-	server.handleClient();                      // run the server
+	yield();
+	server.handleClient(); // run the server 
+	yield();
 	ArduinoOTA.handle();
 }
 void startWiFi() { // Try to connect to some given access points. Then wait for a connection
@@ -230,6 +240,7 @@ void startWiFi() { // Try to connect to some given access points. Then wait for 
 	char pass[] = "Gfmsd45kaxu69$"; // Your network password
 	WiFi.begin(ssid, pass);
 	WiFiClient client; // Initialize the WiFi client library
+	Serial.println("WiFi connected");
 }
 
 void startUDP() {
@@ -293,7 +304,7 @@ void startServer() { // Start a HTTP server with a file read handler and an uplo
 	server.onNotFound(handleNotFound);          // if someone requests any other file or page, go to function 'handleNotFound'
 	// and check if the file exists
 
-	server.begin();                             // start the HTTP server
+	//server.begin();                             // start the HTTP server
 	Serial.println("HTTP server started.");
 }
 
@@ -304,7 +315,6 @@ void handleNotFound() { // if the requested file or page doesn't exist, return a
 		server.send(404, "text/plain", "404: File Not Found");
 	}
 }
-
 bool handleFileRead(String path) { // send the right file to the client (if it exists)
 	Serial.println("handleFileRead: " + path);
 	if (path.endsWith("/")) path += "index.html";          // If a folder is requested, send the index file
@@ -315,6 +325,7 @@ bool handleFileRead(String path) { // send the right file to the client (if it e
 			path += ".gz";                                         // Use the compressed verion
 		File file = SPIFFS.open(path, "r");                    // Open the file
 		size_t sent = server.streamFile(file, contentType);    // Send it to the client
+		
 		file.close();                                          // Close the file again
 		Serial.println(String("\tSent file: ") + path);
 		return true;
@@ -322,7 +333,6 @@ bool handleFileRead(String path) { // send the right file to the client (if it e
 	Serial.println(String("\tFile Not Found: ") + path);   // If the file doesn't exist, return false
 	return false;
 }
-
 void handleFileUpload() { // upload a new file to the SPIFFS
 	HTTPUpload& upload = server.upload();
 	String path;
@@ -354,9 +364,7 @@ void handleFileUpload() { // upload a new file to the SPIFFS
 		}
 	}
 }
-
 /*__________________________________________________________HELPER_FUNCTIONS__________________________________________________________*/
-
 String formatBytes(size_t bytes) { // convert sizes in bytes to KB and MB
 	if (bytes < 1024) {
 		return String(bytes) + "B";
@@ -367,8 +375,8 @@ String formatBytes(size_t bytes) { // convert sizes in bytes to KB and MB
 	else if (bytes < (1024 * 1024 * 1024)) {
 		return String(bytes / 1024.0 / 1024.0) + "MB";
 	}
+	return "";
 }
-
 String getContentType(String filename) { // determine the filetype of a given filename, based on the extension
 	if (filename.endsWith(".html")) return "text/html";
 	else if (filename.endsWith(".css")) return "text/css";
@@ -377,7 +385,6 @@ String getContentType(String filename) { // determine the filetype of a given fi
 	else if (filename.endsWith(".gz")) return "application/x-gzip";
 	return "text/plain";
 }
-
 unsigned long getTime() { // Check if the time server has responded, if so, get the UNIX time, otherwise, return 0
 	if (UDP.parsePacket() == 0) { // If there's no response (yet)
 		return 0;
@@ -392,8 +399,6 @@ unsigned long getTime() { // Check if the time server has responded, if so, get 
 	uint32_t UNIXTime = NTPTime - seventyYears + 60 * 60 * 3;
 	return UNIXTime;
 }
-
-
 void sendNTPpacket(IPAddress& address) {
 	Serial.println("Sending NTP request");
 	memset(packetBuffer, 0, NTP_PACKET_SIZE);  // set all bytes in the buffer to 0
@@ -405,3 +410,83 @@ void sendNTPpacket(IPAddress& address) {
 	UDP.write(packetBuffer, NTP_PACKET_SIZE);
 	UDP.endPacket();
 }
+
+void HomePage() {
+	Serial.println("Home page begins");
+	
+  SendHTML_Header();
+  webpage += ("<a href='/download'><button>Download</button></a>");
+  append_page_footer();
+  SendHTML_Content();
+  SendHTML_Stop(); // Stop is needed because no content length was sent
+}
+
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+void SendHTML_Header() {
+	//server.send(200, "text/plain", "Home page begins"); 
+  server.sendHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+  server.sendHeader("Pragma", "no-cache");
+  server.sendHeader("Expires", "-1");
+ server.setContentLength(CONTENT_LENGTH_UNKNOWN);
+ // server.send(200, "text/html", ""); // Empty content inhibits Content-length header so we have to close the socket ourselves.
+  append_page_header();
+  SendHTML_Content();
+  webpage = "";
+}
+
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+void SendHTML_Stop() {
+  server.sendContent("");
+  server.client().stop(); // Stop is needed because no content length was sent
+}
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+void ReportFileNotPresent(String target) {
+	SendHTML_Header();
+	webpage += ("<h3>File does not exist</h3>");
+	webpage += ("<a href='/"); webpage += target + "'>[Back]</a><br><br>";
+	append_page_footer();
+	SendHTML_Content();
+	SendHTML_Stop();
+}
+//===========================================================================================
+
+  void File_Download() { // This gets called twice, the first pass selects the input, the second pass then processes the command line arguments
+	  if (server.args() > 0) { // Arguments were received
+		  if (server.hasArg("download")) SD_file_download(server.arg(0));
+	  }
+	  else SelectInput("File Download", "Enter filename to download", "download", "download");
+  }
+  //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  void SD_file_download(String filename) {
+	  File download = SPIFFS.open("/" + filename, "r");
+	  if (download) {
+		  server.sendHeader("Content-Type", "text/text");
+		  server.sendHeader("Content-Disposition", "attachment; filename=" + filename);
+		  server.sendHeader("Connection", "close");
+		  server.streamFile(download, "application/octet-stream");
+		  download.close();
+	  }
+	  else ReportFileNotPresent("download");
+  }
+ 
+  //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  void SendHTML_Content() {
+	  Serial.println("webpage: " + String(webpage.length()));
+	  server.sendContent(webpage);
+	  webpage = "";
+  }
+ 
+  //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  void SelectInput(String heading1, String heading2, String command, String arg_calling_name) {
+	  SendHTML_Header();
+	  webpage += ("<h3 class='rcorners_m'>"); webpage += heading1 + "</h3><br>";
+	  webpage += ("<h3>"); webpage += heading2 + "</h3>";
+	  webpage += ("<FORM action='/"); webpage += command + "' method='post'>"; // Must match the calling argument e.g. '/chart' calls '/chart' after selection but with arguments!
+	  webpage += ("<input type='text' name='"); webpage += arg_calling_name; webpage += ("' value=''><br>");
+	  webpage += ("<type='submit' name='"); webpage += arg_calling_name; webpage += ("' value=''><br><br>");
+	  append_page_footer();
+	  SendHTML_Content();
+	  SendHTML_Stop();
+  }
+  
