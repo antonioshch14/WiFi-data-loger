@@ -74,6 +74,14 @@ task displayUpdate(1000);
 task task1(10000);//connection to NTP
 task taskSendNTPrequest(100);//sending NTP request
 task writeToLog(10000);
+class fileSt {
+public:
+	String name;
+	String size;
+	};
+int filesStoredIndex=0;
+const int maxFiles = 4;
+fileSt filesStored[maxFiles];
 
 void setup() {
 	Serial.begin(9600);
@@ -96,6 +104,7 @@ void setup() {
 startUDP();                  // Start listening for UDP messages to port 123
 server.on("/", HomePage);
 server.on("/download", File_Download);
+server.on("/Delete", File_Delete);
 server.begin();
 
 
@@ -187,6 +196,11 @@ void loop() {
 			Serial.println("WL_CONNECTED");
 			NTPconnected = connectToNtp();
 			task1.ignor = NTPconnected;
+		}
+		else {
+			Serial.println("fail to connect to WiFI");
+			WiFi.disconnect();
+			startWiFi();
 		}
 	}
 	if (NTPconnected) {
@@ -284,6 +298,11 @@ void startSPIFFS() { // Start the SPIFFS and list all contents
 			String fileName = dir.fileName();
 			size_t fileSize = dir.fileSize();
 			Serial.printf("\tFS File: %s, size: %s\r\n", fileName.c_str(), formatBytes(fileSize).c_str());
+			if (filesStoredIndex < maxFiles) {
+				filesStored[filesStoredIndex].name = fileName;
+				filesStored[filesStoredIndex].size = formatBytes(fileSize);
+				filesStoredIndex++;
+			}
 		}
 		Serial.printf("\n");
 	}
@@ -415,7 +434,7 @@ void HomePage() {
 	Serial.println("Home page begins");
 	
   SendHTML_Header();
-  webpage += ("<a href='/download'><button>Download</button></a>");
+  webpage += F("<a href='/download'><button>Download</button></a>");
   append_page_footer();
   SendHTML_Content();
   SendHTML_Stop(); // Stop is needed because no content length was sent
@@ -443,8 +462,8 @@ void SendHTML_Stop() {
 
 void ReportFileNotPresent(String target) {
 	SendHTML_Header();
-	webpage += ("<h3>File does not exist</h3>");
-	webpage += ("<a href='/"); webpage += target + "'>[Back]</a><br><br>";
+	webpage += F("<h3>File does not exist</h3>");
+	webpage += F("<a href='/"); webpage += target + "'>[Back]</a><br><br>";
 	append_page_footer();
 	SendHTML_Content();
 	SendHTML_Stop();
@@ -456,6 +475,16 @@ void ReportFileNotPresent(String target) {
 		  if (server.hasArg("download")) SD_file_download(server.arg(0));
 	  }
 	  else SelectInput("File Download", "Enter filename to download", "download", "download");
+  }
+  void File_Delete() { // This gets called twice, the first pass selects the input, the second pass then processes the command line arguments
+	  if (server.args() > 0) { // Arguments were received
+		  if (server.hasArg("Delete")) if (deleteFile(server.arg(0))) {
+			  server.sendHeader("Content-Type", "text/text");
+			 server.sendHeader("Content-Disposition", "attachment; filename=");
+			  server.sendHeader("Connection", "close");
+		  }
+	  }
+	  else SelectInput("File Delete", "Enter filename to delete",  "Delete", "Delete");
   }
   //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
   void SD_file_download(String filename) {
@@ -469,7 +498,25 @@ void ReportFileNotPresent(String target) {
 	  }
 	  else ReportFileNotPresent("download");
   }
- 
+  bool deleteFile(String filename) {
+	  bool filefound = false;
+	  Serial.println("Tring to delete");
+	  File download = SPIFFS.open("/" + filename, "r");
+	  if (download) filefound = true;
+	  download.close();
+	  if (filefound) {
+		  SPIFFS.remove("/"+filename);
+		  for (int i = 0; i < filesStoredIndex + 1; i++) {
+			  filesStored[i].name = "";
+			  filesStored[i].size = "";
+		  }
+		  startSPIFFS();
+		  return true;
+	  }
+	  return false;
+  }
+  
+
   //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
   void SendHTML_Content() {
 	  Serial.println("webpage: " + String(webpage.length()));
@@ -480,11 +527,21 @@ void ReportFileNotPresent(String target) {
   //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
   void SelectInput(String heading1, String heading2, String command, String arg_calling_name) {
 	  SendHTML_Header();
-	  webpage += ("<h3 class='rcorners_m'>"); webpage += heading1 + "</h3><br>";
-	  webpage += ("<h3>"); webpage += heading2 + "</h3>";
-	  webpage += ("<FORM action='/"); webpage += command + "' method='post'>"; // Must match the calling argument e.g. '/chart' calls '/chart' after selection but with arguments!
-	  webpage += ("<input type='text' name='"); webpage += arg_calling_name; webpage += ("' value=''><br>");
-	  webpage += ("<type='submit' name='"); webpage += arg_calling_name; webpage += ("' value=''><br><br>");
+	  webpage += F("<h3 class='rcorners_m'>"); webpage += heading1 + "</h3><br>";
+	  webpage += F("<h3>"); webpage += heading2 + "</h3>";
+	  //webpage += F("<h4 class='rcorners_m'>"); webpage += heading1 + "</h4><br>";
+	  webpage += F("<h4>"); webpage += filesStored[0].name+ filesStored[0].size + "</h4>";
+	 // webpage += F("<h5 class='rcorners_m'>"); webpage += heading1 + "</h5><br>";
+	  webpage += F("<h5>"); webpage += filesStored[1].name + filesStored[1].size  + "</h5>";
+	 // webpage += F("<h6 class='rcorners_m'>"); webpage += heading1 + "</h6><br>";
+	  webpage += F("<h6>"); webpage += filesStored[2].name + filesStored[2].size + "</h6>";
+	 // webpage += F("<h7 class='rcorners_m'>"); webpage += heading1 + "</h7><br>";
+	  webpage += F("<h7>"); webpage += filesStored[3].name + filesStored[3].size + "</h7>";
+
+	  webpage += F("<FORM action='/"); webpage += command + "' method='post'>"; // Must match the calling argument e.g. '/chart' calls '/chart' after selection but with arguments!
+	  webpage += F("<input type='text' name='"); webpage += arg_calling_name; webpage += F("' value=''><br>");
+	  webpage += F("<type='submit' name='"); webpage += arg_calling_name; webpage += F("' value=''><br><br>");
+	  
 	  append_page_footer();
 	  SendHTML_Content();
 	  SendHTML_Stop();
