@@ -18,6 +18,12 @@ void append_page_header() {
 	webpage += F("h5{font-size:0.8em;}");
 	webpage += F("h6{font-size:0.8em;}");
 	webpage += F("h7{font-size:0.8em;}");
+	webpage += F("h8{font-size:0.8em;}");
+	webpage += F("h9{font-size:0.8em;}");
+	webpage += F("h10{font-size:0.8em;}");
+	webpage += F("h11{font-size:0.8em;}");
+	webpage += F("h12{font-size:0.8em;}");
+	webpage += F("h13{font-size:0.8em;}");
 	webpage += F("table{font-family:arial,sans-serif;font-size:0.9em;border-collapse:collapse;width:85%;}");
 	webpage += F("th,td {border:0.06em solid #dddddd;text-align:left;padding:0.3em;border-bottom:0.06em solid #dddddd;}");
 	webpage += F("tr:nth-child(odd) {background-color:#eeeeee;}");

@@ -5,7 +5,13 @@ VisualStudioVersion = 15.0.28307.271
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "WiFi data loger", "WiFi data loger\WiFi data loger.vcxproj", "{C5F80730-F44F-4478-BDAE-6634EFC2CA88}"
 EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "DHT12-0.9.0", "Libraries\DHT12\0.9.0\DHT12\DHT12-0.9.0.vcxitems", "{3E2AD9A9-3D16-48F4-A8EB-EE676B9CE3C0}"
+EndProject
 Global
+	GlobalSection(SharedMSBuildProjectFiles) = preSolution
+		Libraries\DHT12\0.9.0\DHT12\DHT12-0.9.0.vcxitems*{3e2ad9a9-3d16-48f4-a8eb-ee676b9ce3c0}*SharedItemsImports = 9
+		Libraries\DHT12\0.9.0\DHT12\DHT12-0.9.0.vcxitems*{c5f80730-f44f-4478-bdae-6634efc2ca88}*SharedItemsImports = 4
+	EndGlobalSection
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x86 = Debug|x86
 		Release|x86 = Release|x86

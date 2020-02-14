@@ -14,6 +14,146 @@
 #include <SPI.h>
 
 
+
+
+//===================time===============
+
+
+
+class TimeSet {
+	int monthDays[12] = { 31,28,31,30,31,30,31,31,30,31,30,31 }; // API starts months from 1, this array starts from 0
+
+	int *shift;
+	time_t lastUpdate;//time when the time was updated, used for current time calculation
+	time_t actual_Time;
+	time_t UNIXtime;
+public:
+	int NowMonth;
+	int NowYear;
+	int NowDay;
+	int NowWeekDay;
+	int lastShift;
+	int NowHour;
+	int NowMin;
+	int NowSec;
+	int Now10Min;
+	int sec() {
+		updateCurrecnt();
+		return actual_Time % 60;
+	};
+	int min() {
+		updateCurrecnt();
+		return actual_Time / 60 % 60;
+	};
+	int hour() {
+		updateCurrecnt();
+		return actual_Time / 3600 % 24;
+	};
+	
+	time_t SetCurrentTime(time_t timeToSet) { //call each time after recieving updated time
+		lastUpdate = millis();
+		UNIXtime = timeToSet;
+	}//call each time after recieving updated time
+	void updateDay() {
+		updateCurrecnt();
+		breakTime(&NowYear, &NowMonth, &NowDay, &NowWeekDay);
+		Serial.println(String(NowYear) + ":" + String(NowMonth) + ":" + String(NowDay) + ":" + String(NowWeekDay));
+		}// call in setup and each time when new day comes 
+	bool Shift() {  //check whether there is a new day comes, first call causes alignement of tracked and checked day 
+		//Serial.println("lastShift " + String(lastShift) + "  *shift " + String(*shift));
+		if (lastShift != *shift) {
+			lastShift = *shift;
+			 return true;
+		}
+		else return false;
+	} //call to check whether the day is changed
+	void begin(int shiftType) //1-day,2-hiur,3-10 minutes
+	{
+		switch (shiftType)
+		{
+		case 1:shift = &NowDay;
+			break;
+		case 2:shift = &NowHour;
+			break;
+		case 3:shift = &Now10Min;
+			break;
+		default:shift = &NowDay;
+			break;
+		}
+	};
+private:
+	
+	void updateCurrecnt() {
+		actual_Time= UNIXtime +(millis() - lastUpdate) / 1000;
+			
+	}
+	
+	bool LEAP_YEAR(time_t Y) {
+		//((1970 + (Y)) > 0) && !((1970 + (Y)) % 4) && (((1970 + (Y)) % 100) || !((1970 + (Y)) % 400)) ;
+		if ((1970 + (Y)) > 0) { if ((1970 + (Y)) % 4 == 0) { if ((((1970 + (Y)) % 100) != 0) || (((1970 + (Y)) % 400) == 0)) return true;
+			}else return false; }else return false;
+		}
+	
+	void breakTime( int *Year,int *Month,int *day,int *week) {
+	// break the given time_t into time components
+	// this is a more compact version of the C library localtime function
+	// note that year is offset from 1970 !!!
+
+	int year;
+	int month, monthLength;
+	uint32_t time;
+	unsigned long days;
+
+	time = (uint32_t)actual_Time;
+	NowSec = time % 60;
+	time /= 60; // now it is minutes
+	NowMin = time % 60;
+	Now10Min = 10*(time % 60);
+	time /= 60; // now it is hours
+	NowHour = time % 24;
+	time /= 24; // now it is days
+	*week = int(((time + 4) % 7) );  // Monday is day 1 
+
+	year = 0;
+	days = 0;
+	while ((unsigned)(days += (LEAP_YEAR(year) ? 366 : 365)) <= time) {
+		year++;
+	}
+	*Year = year+1970; // year is offset from 1970 
+
+	days -= LEAP_YEAR(year) ? 366 : 365;
+	time -= days; // now it is days in this year, starting at 0
+
+	days = 0;
+	month = 0;
+	monthLength = 0;
+	for (month = 0; month < 12; month++) {
+		if (month == 1) { // february
+			if (LEAP_YEAR(year)) {
+				monthLength = 29;
+			}
+			else {
+				monthLength = 28;
+			}
+		}
+		else {
+			monthLength = monthDays[month];
+		}
+
+		if (time >= monthLength) {
+			time -= monthLength;
+		}
+		else {
+			break;
+		}
+	}
+	*Month = month + 1;  // jan is month 1  
+	*day = time + 1;     // day of month
+}
+};
+TimeSet Time_set;
+String fileName = "/temp.csv";
+
 DHTesp dht;
 float temp;
 float humid;
@@ -78,10 +218,32 @@ class fileSt {
 public:
 	String name;
 	String size;
+	bool checked;//true if the file checked on the number
+	unsigned long number_csv=0;
+	void checkNameOnNumber(String beginer, String end) {
+	int fieldBegin = name.indexOf(beginer)+ beginer.length();
+	int check_field = name.indexOf(beginer);
+	int filedEnd = name.indexOf(end);
+	number_csv = 0;
+	if (check_field != -1 && filedEnd != -1) {
+		for (int i = filedEnd-1; i > fieldBegin; i--) {
+			char ch = name[i];
+			if (isDigit(ch)) {
+				int val = ch - 48;
+				number_csv += ((val * pow(10, filedEnd - 1-i)));
+			}
+			if (number_csv > 999999999)break;
+		}
+		checked = false;
+	}
+	else checked = true;
+	}
 	};
-int filesStoredIndex=0;
-const int maxFiles = 4;
+
+int filesStoredIndex;
+const int maxFiles = 10;
 fileSt filesStored[maxFiles];
+
 
 void setup() {
 	Serial.begin(9600);
@@ -98,7 +260,7 @@ void setup() {
 	startSPIFFS();               // Start the SPIFFS and list all contents
 
 	startMDNS();                 // Start the mDNS responder
-
+	Time_set.begin(2);               //start time 1-day,2-hour,3-10 min
 //startServer();               // Start a HTTP server with a file read handler and an upload handler
 
 startUDP();                  // Start listening for UDP messages to port 123
@@ -170,15 +332,6 @@ bool connectToNtp() {
 	startUDP();
 	return false;
 }
-inline int getSeconds(uint32_t UNIXTime) {
-	return UNIXTime % 60;
-}
-inline int getMinutes(uint32_t UNIXTime) {
-	return UNIXTime / 60 % 60;
-}
-inline int getHours(uint32_t UNIXTime) {
-	return UNIXTime / 3600 % 24;
-}
 
 void loop() {
 	if (am2302udate.check()) {
@@ -221,23 +374,48 @@ void loop() {
 			Serial.println(timeUNIX);
 			lastNTPResponse = currentMillis;
 			taskSendNTPrequest.period = 1000 * 60 * 60 * 24;//slow down requestes when the time is obtained
-			
-
+			Time_set.SetCurrentTime(timeUNIX);
 		}
 
 		actualTime = timeUNIX + (currentMillis - lastNTPResponse) / 1000;
 		
-		if (writeToLog.check()) {
-			String Time = String(getHours(actualTime)) + ":" + String(getMinutes(actualTime)) + ":" + String(getSeconds(actualTime));
-			Serial.println("Appending temperature to file: "+ Time);
-			Serial.println(temp);
-			File tempLog = SPIFFS.open("/temp.csv", "a"); // Write the time and the temperature to the csv file
+		if (timeUNIX&&writeToLog.check()) {
+			Time_set.updateDay();
+			Serial.println("/" + String(Time_set.NowYear) + String(Time_set.NowMonth) +
+				String(Time_set.NowDay) + String(Time_set.NowHour) + String(Time_set.NowMin)+ String(Time_set.NowSec));
+			String Time = String(Time_set.NowHour) + ":" + String(Time_set.NowMin) + ":" + String(Time_set.NowSec);
+			
+			
+			Serial.println(temp+String("  ")+humid);
+			String Fmonth, Fday,Fhour, Fmin;
+			if (Time_set.Shift()){	
+			if (Time_set.NowMonth < 10)Fmonth ="0"+ String(Time_set.NowMonth);
+			else Fmonth = String(Time_set.NowMonth);
+			if (Time_set.NowDay < 10)Fday = "0" + String(Time_set.NowDay);
+			else Fday = String(Time_set.NowDay);
+			if (Time_set.NowHour < 10)Fhour = "0" + String(Time_set.NowHour);
+			else Fhour = String(Time_set.NowHour);
+			if (Time_set.NowMin < 10)Fmin = "0" + String(Time_set.NowMin);
+			else Fmin = String(Time_set.NowMin);
+					fileName = "/" + String(Time_set.NowYear) + Fmonth+ Fday+ Fhour+Fmin +".csv";
+				Serial.println("Appending temperature to file: " + fileName);
+				File tempLog = SPIFFS.open(fileName, "a"); // Write the time and the temperature to the csv file
+				tempLog.print(Time);
+				tempLog.print(',');
+				tempLog.print("Temp");
+				tempLog.print(',');
+				tempLog.println("Humid");
+				tempLog.close();
+				startSPIFFS();
+			}
+			File tempLog = SPIFFS.open(fileName, "a"); // Write the time and the temperature to the csv file
 			tempLog.print(Time);
 			tempLog.print(',');
 			tempLog.print(temp);
 			tempLog.print(',');
 			tempLog.println(humid);
 			tempLog.close();
+			
 		}
 	}
 
@@ -288,24 +466,54 @@ void startOTA() { // Start the OTA service
 	ArduinoOTA.begin();
 	Serial.println("OTA ready\r\n");
 }
-
+String findOldest() {
+		unsigned long min = 9999999999;
+		int indexOfMin = 0;
+		bool found;
+		for (int i = 0; i <= maxFiles-1; i++) {
+			Serial.printf("min %d <= filesStored[i].number_csv %d && !filesStored[i].checked %b",
+				min, filesStored[i].number_csv); Serial.println(filesStored[i].checked);
+			if (!filesStored[i].number_csv && min >= filesStored[i].number_csv && !filesStored[i].checked) {
+				indexOfMin = i;
+				min = filesStored[i].number_csv;
+				found = true;
+			}
+		}
+		
+		Serial.printf(" File name %s position %d\n\r", filesStored[indexOfMin].name.c_str(), indexOfMin);
+		if(found) return filesStored[indexOfMin].name;
+		else return "Not_found";
+}; 
 void startSPIFFS() { // Start the SPIFFS and list all contents
 	SPIFFS.begin();                             // Start the SPI Flash File System (SPIFFS)
+	filesStoredIndex = -1;
 	Serial.println("SPIFFS started. Contents:");
-	{
+	{   
 		Dir dir = SPIFFS.openDir("/");
 		while (dir.next()) {                      // List the file system contents
 			String fileName = dir.fileName();
 			size_t fileSize = dir.fileSize();
-			Serial.printf("\tFS File: %s, size: %s\r\n", fileName.c_str(), formatBytes(fileSize).c_str());
-			if (filesStoredIndex < maxFiles) {
+			Serial.printf("\tFS File: %s, size: %s  \r\n", fileName.c_str(), formatBytes(fileSize).c_str()); //\r\n
+			if (filesStoredIndex <= maxFiles) {
+				filesStoredIndex++;
 				filesStored[filesStoredIndex].name = fileName;
 				filesStored[filesStoredIndex].size = formatBytes(fileSize);
-				filesStoredIndex++;
+				filesStored[filesStoredIndex].checkNameOnNumber("/",".csv");
+				Serial.print(filesStored[filesStoredIndex].number_csv);
+				//Serial.printf(" filesStoredIndex %d \r\n", filesStoredIndex);
+				//deleteFile(fileName);
+				
+				if (filesStoredIndex >= maxFiles ) {
+					for (int i = 0; i < maxFiles - filesStoredIndex; i++) {
+						Serial.printf(" maxFiles - filesStoredIndex = %d, i= %d \r\n", maxFiles - filesStoredIndex, i);
+						if (deleteFile(findOldest()))   refreshSPIFS();
+					}
+				}
 			}
 		}
 		Serial.printf("\n");
 	}
+	
 }
 
 void startMDNS() { // Start the mDNS responder
@@ -415,7 +623,8 @@ unsigned long getTime() { // Check if the time server has responded, if so, get 
 	// Unix time starts on Jan 1 1970. That's 2208988800 seconds in NTP time:
 	const uint32_t seventyYears = 2208988800UL;
 	// subtract seventy years:
-	uint32_t UNIXTime = NTPTime - seventyYears + 60 * 60 * 3;
+	int32_t UNIXTime = NTPTime - seventyYears + 60 * 60 * 3;
+	
 	return UNIXTime;
 }
 void sendNTPpacket(IPAddress& address) {
@@ -473,16 +682,15 @@ void ReportFileNotPresent(String target) {
   void File_Download() { // This gets called twice, the first pass selects the input, the second pass then processes the command line arguments
 	  if (server.args() > 0) { // Arguments were received
 		  if (server.hasArg("download")) SD_file_download(server.arg(0));
+		  
 	  }
 	  else SelectInput("File Download", "Enter filename to download", "download", "download");
   }
   void File_Delete() { // This gets called twice, the first pass selects the input, the second pass then processes the command line arguments
 	  if (server.args() > 0) { // Arguments were received
 		  if (server.hasArg("Delete")) if (deleteFile(server.arg(0))) {
-			  server.sendHeader("Content-Type", "text/text");
-			 server.sendHeader("Content-Disposition", "attachment; filename=");
-			  server.sendHeader("Connection", "close");
-		  }
+			}
+		   server.sendHeader("Connection", "close");
 	  }
 	  else SelectInput("File Delete", "Enter filename to delete",  "Delete", "Delete");
   }
@@ -500,22 +708,29 @@ void ReportFileNotPresent(String target) {
   }
   bool deleteFile(String filename) {
 	  bool filefound = false;
-	  Serial.println("Tring to delete");
-	  File download = SPIFFS.open("/" + filename, "r");
+	  Serial.println("Tring to delete file  .... " + filename);
+	  //File download = SPIFFS.open("/" + filename, "r");
+	  File download = SPIFFS.open( filename, "r");
 	  if (download) filefound = true;
 	  download.close();
 	  if (filefound) {
-		  SPIFFS.remove("/"+filename);
-		  for (int i = 0; i < filesStoredIndex + 1; i++) {
-			  filesStored[i].name = "";
-			  filesStored[i].size = "";
-		  }
-		  startSPIFFS();
+		  //SPIFFS.remove("/"+filename);
+		  SPIFFS.remove( filename);
+		  Serial.println("File deleted "+ filename);
+		
 		  return true;
 	  }
 	  return false;
   }
-  
+  void refreshSPIFS() {
+	  for (int i = 0; i <= filesStoredIndex; i++) {
+		  filesStored[i].name = "";
+		  filesStored[i].size = "";
+		  filesStored[i].checked = false;
+		  filesStored[i].number_csv = 0;
+		  }
+	//  filesStoredIndex = 0;
+  }
 
   //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
   void SendHTML_Content() {
@@ -526,18 +741,20 @@ void ReportFileNotPresent(String target) {
  
   //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
   void SelectInput(String heading1, String heading2, String command, String arg_calling_name) {
+	  startSPIFFS();
 	  SendHTML_Header();
 	  webpage += F("<h3 class='rcorners_m'>"); webpage += heading1 + "</h3><br>";
 	  webpage += F("<h3>"); webpage += heading2 + "</h3>";
-	  //webpage += F("<h4 class='rcorners_m'>"); webpage += heading1 + "</h4><br>";
 	  webpage += F("<h4>"); webpage += filesStored[0].name+ filesStored[0].size + "</h4>";
-	 // webpage += F("<h5 class='rcorners_m'>"); webpage += heading1 + "</h5><br>";
 	  webpage += F("<h5>"); webpage += filesStored[1].name + filesStored[1].size  + "</h5>";
-	 // webpage += F("<h6 class='rcorners_m'>"); webpage += heading1 + "</h6><br>";
 	  webpage += F("<h6>"); webpage += filesStored[2].name + filesStored[2].size + "</h6>";
-	 // webpage += F("<h7 class='rcorners_m'>"); webpage += heading1 + "</h7><br>";
 	  webpage += F("<h7>"); webpage += filesStored[3].name + filesStored[3].size + "</h7>";
-
+	  webpage += F("<h8>"); webpage += filesStored[4].name + filesStored[4].size + "</h8>";
+	  webpage += F("<h9>"); webpage += filesStored[5].name + filesStored[5].size + "</h9>";
+	  webpage += F("<h10>"); webpage += filesStored[6].name + filesStored[6].size + "</h10>";
+	  webpage += F("<h11>"); webpage += filesStored[7].name + filesStored[7].size + "</h11>";
+	  webpage += F("<h12>"); webpage += filesStored[8].name + filesStored[8].size + "</h12>";
+	  webpage += F("<h13>"); webpage += filesStored[9].name + filesStored[9].size + "</h13>";
 	  webpage += F("<FORM action='/"); webpage += command + "' method='post'>"; // Must match the calling argument e.g. '/chart' calls '/chart' after selection but with arguments!
 	  webpage += F("<input type='text' name='"); webpage += arg_calling_name; webpage += F("' value=''><br>");
 	  webpage += F("<type='submit' name='"); webpage += arg_calling_name; webpage += F("' value=''><br><br>");
